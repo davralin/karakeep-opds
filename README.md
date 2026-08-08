@@ -1,34 +1,99 @@
-# New Repository Setup
+# Karakeep OPDS
 
-This repository includes inherited operational standards and ADRs.
+Karakeep OPDS exposes Karakeep bookmarks as OPDS catalogs for e-readers.
 
-Use the ADRs first. Workflows and config follow repository decisions, not the other way around.
+This project recreates and continues the idea from
+[`yazdipour/karakeep-opds`](https://github.com/yazdipour/karakeep-opds), which appears inactive.
 
-## Setup Order
+## Features
 
-1. Read `adr/`.
-2. Add repo-specific ADRs for durable decisions.
-3. Define artifacts and deployable process responsibilities.
-4. Keep the active single-image workflow unless a later ADR justifies a different topology.
-5. Replace this README with repo-specific usage and development docs.
-6. Replace placeholders that depend on repo-specific architecture.
-7. Update `.github/CODEOWNERS` for the repo owner/team.
-8. Add app source, build, lint, test, package, and runtime files.
+- OPDS 1.2 Atom catalog endpoints.
+- OPDS 2 JSON catalog endpoints.
+- Basic Auth for catalog, asset, and EPUB routes.
+- Unauthenticated `/healthz` endpoint for container and Kubernetes probes.
+- On-demand EPUB generation for bookmarks.
+- Karakeep asset proxying for cover images and readable content assets.
+- Stateless runtime: no database, cache, persistence volume, or background jobs.
 
-## Decisions To Record
+## Endpoints
 
-- What the repo builds and releases.
-- What deployable process responsibilities exist.
-- Whether the repo publishes release container images.
-- Release cadence and tag policy.
-- Vulnerability scan posture.
-- Renovate automerge posture.
-- Deployment artifact policy.
+- `GET /healthz`: health check, no authentication.
+- `GET /opds`: OPDS 1.2 navigation feed.
+- `GET /opds.atom`: OPDS 1.2 navigation feed.
+- `GET /opds.json`: OPDS 2 navigation feed.
+- `GET /opds/bookmarks.atom`: OPDS 1.2 bookmark acquisition feed.
+- `GET /opds/bookmarks.json`: OPDS 2 bookmark acquisition feed.
+- `GET /opds/bookmarks/{bookmark_id}.epub`: generated EPUB for one bookmark.
+- `GET /opds/assets/{asset_id}`: authenticated proxy for Karakeep-owned assets.
 
-## Before First Commit
+## Configuration
 
-- Every durable repo-specific choice is captured in an ADR.
-- Inherited ADRs are accepted or superseded by later ADRs.
-- Workflows reflect the ADR-defined deployable units.
-- Placeholder values are replaced.
-- No workflow or config exists without a repository decision behind it.
+Runtime configuration is provided through environment variables.
+
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `KARAKEEP_BASE_URL` | yes | | Karakeep base URL, for example `https://karakeep.example.org`. |
+| `KARAKEEP_API_TOKEN` | yes | | Karakeep API token. Needs bookmark and asset read access. |
+| `OPDS_USERNAME` | yes | | Basic Auth username for OPDS clients. |
+| `OPDS_PASSWORD` | yes | | Basic Auth password for OPDS clients. |
+| `KARAKEEP_API_PATH` | no | `/api/v1` | Karakeep API path below the base URL. |
+| `OPDS_PAGE_SIZE` | no | `50` | Bookmarks per catalog page, 1 to 100. |
+| `SERVICE_BASE_URL` | no | request URL | External base URL used when rendering absolute OPDS links. |
+| `LOG_LEVEL` | no | `INFO` | Python logging level. |
+
+## Docker
+
+Build locally:
+
+```sh
+docker build -f Containerfile -t karakeep-opds:local .
+```
+
+Run locally:
+
+```sh
+docker run --rm \
+  -p 8000:8000 \
+  -e KARAKEEP_BASE_URL="https://karakeep.example.org" \
+  -e KARAKEEP_API_TOKEN="..." \
+  -e OPDS_USERNAME="reader" \
+  -e OPDS_PASSWORD="change-me" \
+  -e SERVICE_BASE_URL="http://localhost:8000" \
+  karakeep-opds:local
+```
+
+Test from the host:
+
+```sh
+curl http://localhost:8000/healthz
+curl -u reader:change-me http://localhost:8000/opds
+curl -u reader:change-me http://localhost:8000/opds/bookmarks.json
+```
+
+## Development
+
+Install dependencies:
+
+```sh
+uv sync --group dev
+```
+
+Run checks:
+
+```sh
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy .
+uv run pytest
+```
+
+Run without Docker:
+
+```sh
+uv run python -m karakeep_opds
+```
+
+## Release
+
+This repository publishes a single container image to GHCR using the inherited CalVer, SLSA, and
+vulnerability scanning workflows documented in `adr/`.

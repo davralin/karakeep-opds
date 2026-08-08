@@ -1,8 +1,41 @@
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:f5b485ea962d9bd1186b2f6b3a061191539b905b82ec395de78cbfae51f20e35
+FROM ghcr.io/astral-sh/uv:0.12.3@sha256:2d890623d310b57771ce840f0da5eed5fc6d657da05ffaa45d82797b53fa3abc AS uv
 
-LABEL org.opencontainers.image.title="repo-operations"
-LABEL org.opencontainers.image.description="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc AS builder
 
-HEALTHCHECK NONE
+COPY --from=uv /uv /uvx /usr/local/bin/
 
-USER nonroot:nonroot
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src ./src
+
+RUN uv sync --frozen --no-dev --no-editable
+
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc
+
+LABEL org.opencontainers.image.title="karakeep-opds"
+LABEL org.opencontainers.image.description="OPDS bridge for Karakeep bookmarks"
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN python -m pip uninstall -y pip setuptools wheel \
+  && rm -rf /usr/local/lib/python*/ensurepip /root/.cache /tmp/* \
+  && addgroup --system --gid 65532 app \
+  && adduser --system --uid 65532 --ingroup app --home /nonexistent --no-create-home app
+
+COPY --from=builder --chown=app:app /app /app
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()"
+
+USER 65532:65532
+
+CMD ["python", "-m", "karakeep_opds"]
