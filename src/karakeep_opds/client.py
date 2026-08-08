@@ -24,10 +24,18 @@ class KarakeepClient:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def list_bookmarks(self, *, limit: int, cursor: str = "") -> BookmarkPage:
+    async def list_bookmarks(
+        self,
+        *,
+        limit: int,
+        cursor: str = "",
+        archived: bool | None = None,
+    ) -> BookmarkPage:
         params: dict[str, str | int] = {"limit": limit}
         if cursor:
             params["cursor"] = cursor
+        if archived is not None:
+            params["archived"] = "true" if archived else "false"
         response = await self._client.get("/bookmarks", params=params)
         response.raise_for_status()
         data = response.json()

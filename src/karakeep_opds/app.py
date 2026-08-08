@@ -38,7 +38,9 @@ def create_app() -> FastAPI:
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/", dependencies=[Depends(require_basic_auth)])
     @app.get("/opds", dependencies=[Depends(require_basic_auth)])
+    @app.get("/opds/", dependencies=[Depends(require_basic_auth)])
     async def opds_root(
         request: Request,
         settings: Annotated[Settings, Depends(get_settings)],
@@ -66,8 +68,16 @@ def create_app() -> FastAPI:
         settings: Annotated[Settings, Depends(get_settings)],
         cursor: Annotated[str, Query()] = "",
     ) -> Response:
-        page = await _load_bookmarks(client, settings, cursor)
-        return _atom_response(_bookmarks_feed(page, _external_base_url(request, settings), cursor))
+        page = await _load_bookmarks(client, settings, cursor, archived=False)
+        return _atom_response(
+            _bookmarks_feed(
+                page,
+                _external_base_url(request, settings),
+                cursor,
+                path="bookmarks",
+                title="Karakeep Bookmarks",
+            )
+        )
 
     @app.get("/opds/bookmarks.json", dependencies=[Depends(require_basic_auth)])
     async def bookmarks_json(
@@ -76,9 +86,55 @@ def create_app() -> FastAPI:
         settings: Annotated[Settings, Depends(get_settings)],
         cursor: Annotated[str, Query()] = "",
     ) -> JSONResponse:
-        page = await _load_bookmarks(client, settings, cursor)
+        page = await _load_bookmarks(client, settings, cursor, archived=False)
         return JSONResponse(
-            render_opds2(_bookmarks_feed(page, _external_base_url(request, settings), cursor))
+            render_opds2(
+                _bookmarks_feed(
+                    page,
+                    _external_base_url(request, settings),
+                    cursor,
+                    path="bookmarks",
+                    title="Karakeep Bookmarks",
+                )
+            )
+        )
+
+    @app.get("/opds/archived.atom", dependencies=[Depends(require_basic_auth)])
+    async def archived_atom(
+        request: Request,
+        client: Annotated[KarakeepClient, Depends(get_client)],
+        settings: Annotated[Settings, Depends(get_settings)],
+        cursor: Annotated[str, Query()] = "",
+    ) -> Response:
+        page = await _load_bookmarks(client, settings, cursor, archived=True)
+        return _atom_response(
+            _bookmarks_feed(
+                page,
+                _external_base_url(request, settings),
+                cursor,
+                path="archived",
+                title="Karakeep Archived",
+            )
+        )
+
+    @app.get("/opds/archived.json", dependencies=[Depends(require_basic_auth)])
+    async def archived_json(
+        request: Request,
+        client: Annotated[KarakeepClient, Depends(get_client)],
+        settings: Annotated[Settings, Depends(get_settings)],
+        cursor: Annotated[str, Query()] = "",
+    ) -> JSONResponse:
+        page = await _load_bookmarks(client, settings, cursor, archived=True)
+        return JSONResponse(
+            render_opds2(
+                _bookmarks_feed(
+                    page,
+                    _external_base_url(request, settings),
+                    cursor,
+                    path="archived",
+                    title="Karakeep Archived",
+                )
+            )
         )
 
     @app.get("/opds/bookmarks/{bookmark_id}.epub", dependencies=[Depends(require_basic_auth)])
@@ -88,9 +144,9 @@ def create_app() -> FastAPI:
     ) -> Response:
         bookmark = await _load_bookmark(client, bookmark_id)
         asset_content = ""
-        if bookmark.content_asset_id:
+        if bookmark.readable_content_asset_id:
             try:
-                content, media_type = await client.get_asset(bookmark.content_asset_id)
+                content, media_type = await client.get_asset(bookmark.readable_content_asset_id)
                 if media_type.split(";", 1)[0] in {"text/html", "application/xhtml+xml"}:
                     asset_content = content.decode("utf-8", errors="replace")
             except httpx.HTTPError:
@@ -129,9 +185,14 @@ async def _load_bookmarks(
     client: KarakeepClient,
     settings: Settings,
     cursor: str,
+    archived: bool,
 ) -> BookmarkPage:
     try:
-        return await client.list_bookmarks(limit=settings.opds_page_size, cursor=cursor)
+        return await client.list_bookmarks(
+            limit=settings.opds_page_size,
+            cursor=cursor,
+            archived=archived,
+        )
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="Karakeep bookmarks request failed") from exc
 
@@ -164,9 +225,9 @@ def _navigation_feed(base_url: str) -> Feed:
         entries=(
             FeedEntry(
                 id=f"{base_url}/opds/bookmarks.atom",
-                title="Bookmarks",
+                title="Bookmarks/",
                 updated=now_iso(),
-                summary="Readable Karakeep bookmarks as on-demand EPUB publications.",
+                summary="Unread Karakeep bookmarks as on-demand EPUB publications.",
                 links=(
                     FeedLink(href=f"{base_url}/opds/bookmarks.atom", title="OPDS 1.2"),
                     FeedLink(
@@ -177,16 +238,38 @@ def _navigation_feed(base_url: str) -> Feed:
                     ),
                 ),
             ),
+            FeedEntry(
+                id=f"{base_url}/opds/archived.atom",
+                title="Archived/",
+                updated=now_iso(),
+                summary="Archived Karakeep bookmarks as on-demand EPUB publications.",
+                links=(
+                    FeedLink(href=f"{base_url}/opds/archived.atom", title="OPDS 1.2"),
+                    FeedLink(
+                        href=f"{base_url}/opds/archived.json",
+                        rel="alternate",
+                        media_type="application/opds+json",
+                        title="OPDS 2",
+                    ),
+                ),
+            ),
         ),
     )
 
 
-def _bookmarks_feed(page: BookmarkPage, base_url: str, cursor: str) -> Feed:
+def _bookmarks_feed(
+    page: BookmarkPage,
+    base_url: str,
+    cursor: str,
+    *,
+    path: str,
+    title: str,
+) -> Feed:
     links = [
-        FeedLink(href=f"{base_url}/opds/bookmarks.atom", rel="start", title="First page"),
-        FeedLink(href=f"{base_url}/opds/bookmarks.atom", rel="self", title="Current page"),
+        FeedLink(href=f"{base_url}/opds/{path}.atom", rel="start", title="First page"),
+        FeedLink(href=f"{base_url}/opds/{path}.atom", rel="self", title="Current page"),
         FeedLink(
-            href=f"{base_url}/opds/bookmarks.json",
+            href=f"{base_url}/opds/{path}.json",
             rel="alternate",
             media_type="application/opds+json",
             title="OPDS 2",
@@ -195,18 +278,17 @@ def _bookmarks_feed(page: BookmarkPage, base_url: str, cursor: str) -> Feed:
     if page.next_cursor:
         links.append(
             FeedLink(
-                href=f"{base_url}/opds/bookmarks.atom?cursor={page.next_cursor}",
+                href=f"{base_url}/opds/{path}.atom?cursor={page.next_cursor}",
                 rel="next",
                 title="Next page",
             )
         )
-    title = "Karakeep Bookmarks"
     if cursor:
-        title = "Karakeep Bookmarks (continued)"
+        title = f"{title} (continued)"
     return Feed(
-        id=f"{base_url}/opds/bookmarks.atom?cursor={cursor}"
+        id=f"{base_url}/opds/{path}.atom?cursor={cursor}"
         if cursor
-        else f"{base_url}/opds/bookmarks.atom",
+        else f"{base_url}/opds/{path}.atom",
         title=title,
         updated=now_iso(),
         links=tuple(links),

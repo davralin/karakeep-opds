@@ -27,17 +27,16 @@ def build_epub(bookmark: Bookmark, asset_content: str = "") -> bytes:
 
 
 def _body_html(bookmark: Bookmark, asset_content: str) -> str:
-    if bookmark.html_content:
-        return _xhtml_fragment(bookmark.html_content)
     if asset_content:
         return _xhtml_fragment(asset_content)
+    if bookmark.html_content:
+        return _xhtml_fragment(bookmark.html_content)
     parts = []
-    if bookmark.description:
-        parts.append(f"<p>{escape(bookmark.description)}</p>")
+    parts.append("<p>No readable article content was available for this bookmark.</p>")
     if bookmark.url:
         href = escape(bookmark.url, {'"': "&quot;"})
         parts.append(f'<p>Source: <a href="{href}">{escape(bookmark.url)}</a></p>')
-    return "\n".join(parts) or "<p>No readable content was available for this bookmark.</p>"
+    return "\n".join(parts)
 
 
 def _xhtml_fragment(value: str) -> str:

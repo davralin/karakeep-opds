@@ -15,6 +15,7 @@ class Asset:
 class Bookmark:
     id: str
     title: str
+    archived: bool = False
     url: str = ""
     description: str = ""
     html_content: str = ""
@@ -36,6 +37,15 @@ class Bookmark:
     @property
     def cover_asset_id(self) -> str:
         return self.image_asset_id or self.screenshot_asset_id
+
+    @property
+    def readable_content_asset_id(self) -> str:
+        if self.content_asset_id:
+            return self.content_asset_id
+        for asset in self.assets:
+            if asset.asset_type == "linkHtmlContent":
+                return asset.id
+        return ""
 
     @classmethod
     def from_api(cls, data: dict[str, Any]) -> Bookmark:
@@ -61,6 +71,7 @@ class Bookmark:
         return cls(
             id=_str(data.get("id")),
             title=title,
+            archived=data.get("archived") is True,
             url=_str(content.get("url")),
             description=description,
             html_content=_str(content.get("htmlContent")),

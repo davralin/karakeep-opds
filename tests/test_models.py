@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from karakeep_opds.models import Bookmark, BookmarkPage
+from karakeep_opds.models import Asset, Bookmark, BookmarkPage
 
 
 def test_bookmark_from_api_uses_content_fields() -> None:
@@ -28,6 +28,20 @@ def test_bookmark_from_api_uses_content_fields() -> None:
     assert bookmark.assets[0].id == "asset"
     assert bookmark.cover_asset_id == "image"
     assert bookmark.content_asset_id == "content"
+    assert bookmark.readable_content_asset_id == "content"
+
+
+def test_bookmark_uses_link_html_content_asset_as_readable_fallback() -> None:
+    bookmark = Bookmark(
+        id="abc",
+        title="Title",
+        assets=(
+            Asset(id="screen", asset_type="screenshot"),
+            Asset(id="article", asset_type="linkHtmlContent"),
+        ),
+    )
+
+    assert bookmark.readable_content_asset_id == "article"
 
 
 def test_bookmark_page_from_api() -> None:

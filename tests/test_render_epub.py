@@ -57,3 +57,22 @@ def test_build_epub_creates_required_files() -> None:
         assert "META-INF/container.xml" in archive.namelist()
         assert "OEBPS/content.opf" in archive.namelist()
         assert "OEBPS/article.xhtml" in archive.namelist()
+
+
+def test_build_epub_does_not_use_summary_or_description_as_body() -> None:
+    content = build_epub(
+        Bookmark(
+            id="abc",
+            title="Example",
+            url="https://example.test/article",
+            description="Summary text should not become book content",
+            modified_at="2024-01-01T00:00:00Z",
+        )
+    )
+
+    with zipfile.ZipFile(BytesIO(content)) as archive:
+        article = archive.read("OEBPS/article.xhtml").decode()
+
+    assert "Summary text should not become book content" not in article
+    assert "No readable article content was available" in article
+    assert "https://example.test/article" in article

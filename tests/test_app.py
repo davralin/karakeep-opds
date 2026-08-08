@@ -9,13 +9,22 @@ from fastapi.testclient import TestClient
 
 from karakeep_opds.app import create_app, get_client
 from karakeep_opds.config import Settings, get_settings
-from karakeep_opds.models import Bookmark, BookmarkPage
+from karakeep_opds.models import Asset, Bookmark, BookmarkPage
 
 
 class FakeKarakeepClient:
-    async def list_bookmarks(self, *, limit: int, cursor: str = "") -> BookmarkPage:
+    calls: list[bool | None] = []
+
+    async def list_bookmarks(
+        self,
+        *,
+        limit: int,
+        cursor: str = "",
+        archived: bool | None = None,
+    ) -> BookmarkPage:
         assert limit == 2
         assert cursor in {"", "next"}
+        self.calls.append(archived)
         return BookmarkPage(
             bookmarks=(
                 Bookmark(
@@ -36,9 +45,9 @@ class FakeKarakeepClient:
         return Bookmark(
             id="abc",
             title="Example",
-            html_content="<p>Hello</p>",
-            content_asset_id="content",
+            description="Summary must not be used as body",
             modified_at="2024-01-01T00:00:00Z",
+            assets=(Asset(id="content", asset_type="linkHtmlContent"),),
         )
 
     async def get_asset(self, asset_id: str) -> tuple[bytes, str]:
@@ -65,7 +74,19 @@ def test_opds_requires_auth() -> None:
     assert response.headers["www-authenticate"] == "Basic"
 
 
+def test_root_serves_navigation_feed() -> None:
+    client = _test_client()
+
+    response = client.get("/", headers=_auth_header())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/atom+xml")
+    assert "Bookmarks/" in response.text
+    assert "Archived/" in response.text
+
+
 def test_bookmarks_atom() -> None:
+    FakeKarakeepClient.calls.clear()
     client = _test_client()
 
     response = client.get("/opds/bookmarks.atom", headers=_auth_header())
@@ -75,6 +96,20 @@ def test_bookmarks_atom() -> None:
     assert "Example" in response.text
     assert "/opds/bookmarks/abc.epub" in response.text
     assert "cursor=next" in response.text
+    assert FakeKarakeepClient.calls == [False]
+
+
+def test_archived_atom() -> None:
+    FakeKarakeepClient.calls.clear()
+    client = _test_client()
+
+    response = client.get("/opds/archived.atom", headers=_auth_header())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/atom+xml")
+    assert "Karakeep Archived" in response.text
+    assert "/opds/archived.atom?cursor=next" in response.text
+    assert FakeKarakeepClient.calls == [True]
 
 
 def test_bookmarks_json() -> None:
@@ -94,6 +129,9 @@ def test_epub_endpoint() -> None:
     assert response.headers["content-type"] == "application/epub+zip"
     with zipfile.ZipFile(BytesIO(response.content)) as archive:
         assert archive.read("mimetype") == b"application/epub+zip"
+        article = archive.read("OEBPS/article.xhtml").decode()
+    assert "Asset body" in article
+    assert "Summary must not be used as body" not in article
 
 
 def test_asset_proxy() -> None:
