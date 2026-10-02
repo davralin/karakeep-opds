@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 AS uv
 
-FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS builder
+FROM python:3.14-slim@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4 AS builder
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -14,7 +14,7 @@ COPY src ./src
 
 RUN uv sync --frozen --no-dev --no-editable
 
-FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
+FROM python:3.14-slim@sha256:0741d101873c12ab927e6f8653feb8862b9bd58771177acb1b885b95141f91b4
 
 LABEL org.opencontainers.image.title="karakeep-opds"
 LABEL org.opencontainers.image.description="OPDS bridge for Karakeep bookmarks"
