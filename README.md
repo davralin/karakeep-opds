@@ -23,6 +23,8 @@ This project recreates and continues the idea from
 - `GET /opds.json`: OPDS 2 navigation feed.
 - `GET /opds/bookmarks.atom`: OPDS 1.2 bookmark acquisition feed.
 - `GET /opds/bookmarks.json`: OPDS 2 bookmark acquisition feed.
+- `GET /opds/archived.atom`: OPDS 1.2 archived bookmark acquisition feed.
+- `GET /opds/archived.json`: OPDS 2 archived bookmark acquisition feed.
 - `GET /opds/bookmarks/{bookmark_id}.epub`: generated EPUB for one bookmark.
 - `GET /opds/assets/{asset_id}`: authenticated proxy for Karakeep-owned assets.
 
@@ -39,7 +41,7 @@ Runtime configuration is provided through environment variables.
 | `KARAKEEP_API_PATH` | no | `/api/v1` | Karakeep API path below the base URL. |
 | `OPDS_PAGE_SIZE` | no | `50` | Bookmarks per catalog page, 1 to 100. |
 | `SERVICE_BASE_URL` | no | request URL | External base URL used when rendering absolute OPDS links. |
-| `LOG_LEVEL` | no | `INFO` | Python logging level. |
+| `LOG_LEVEL` | no | `INFO` | Application log level (`ERROR`, `WARN`, `INFO`, `DEBUG`, or `TRACE`). |
 
 ## Docker
 
@@ -72,25 +74,17 @@ curl -u reader:change-me http://localhost:8000/opds/bookmarks.json
 
 ## Development
 
-Install dependencies:
-
-```sh
-uv sync --group dev
-```
-
 Run checks:
 
 ```sh
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy .
-uv run pytest
+docker build --target test -f Containerfile .
 ```
 
-Run without Docker:
+Build and exercise the complete final image against a local Karakeep API stub and EPUBCheck:
 
 ```sh
-uv run python -m karakeep_opds
+docker build -f Containerfile -t karakeep-opds:local .
+python3 tests/deployment_check.py --image karakeep-opds:local
 ```
 
 ## Release

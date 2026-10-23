@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import subprocess
 import sys
@@ -20,10 +21,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-EPUBCHECK_IMAGE = (
-    "novalagung/epubcheck:5.3.0@"
-    "sha256:8cd5fe34ee461c20e3288d0d946755290bb4187705c7f779fd3f552437c60006"
-)
+# renovate: datasource=github-releases depName=w3c/epubcheck versioning=semver
+EPUBCHECK_VERSION = "5.4.0"
+# Verify and update this checksum with the matching official release asset.
+EPUBCHECK_SHA256 = "33350c61038e71dfb3d45a76aed04bf5481e6d5500cb780f6e98db8bbd15a28c"
+# renovate: datasource=docker depName=eclipse-temurin
+EPUBCHECK_JRE_IMAGE = "eclipse-temurin:21-jre@sha256:227118764cccd3c3294617061aaa93a08309c63a395eefa83e6b35032992ea99"
 
 
 class KarakeepStub(BaseHTTPRequestHandler):
@@ -107,7 +110,7 @@ def _bookmark() -> dict[str, object]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", required=True)
-    parser.add_argument("--epubcheck-image", default=EPUBCHECK_IMAGE)
+    parser.add_argument("--epubcheck-jre-image", default=EPUBCHECK_JRE_IMAGE)
     args = parser.parse_args()
 
     server = ThreadingHTTPServer(("0.0.0.0", 0), KarakeepStub)
@@ -149,17 +152,15 @@ def main() -> None:
         with zipfile.ZipFile(BytesIO(epub)) as archive:
             assert archive.read("mimetype") == b"application/epub+zip"
             assert b"Readable body" in archive.read("OEBPS/article.xhtml")
-        _validate_epub(epub, args.epubcheck_image)
+        _validate_epub(epub, args.epubcheck_jre_image)
         assert _request(base_url + "/opds/assets/cover", auth=True) == b"png"
         _run(
             [
                 "docker",
                 "exec",
                 container_id,
-                "python",
-                "-c",
-                "import urllib.request; "
-                "urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()",
+                "/karakeep-opds",
+                "healthcheck",
             ]
         )
         user = _run(
@@ -209,26 +210,45 @@ def _assert_response(url: str, *, expected_status: int) -> None:
     raise AssertionError(f"{url} unexpectedly succeeded")
 
 
-def _validate_epub(epub: bytes, epubcheck_image: str) -> None:
+def _validate_epub(epub: bytes, epubcheck_jre_image: str) -> None:
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "bookmark.epub"
         path.write_bytes(epub)
-        # This image has a broken shell entrypoint, so invoke its bundled EPUBCheck JAR directly.
-        _run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--entrypoint",
-                "java",
-                "--volume",
-                f"{directory}:/data:ro",
-                epubcheck_image,
-                "-jar",
-                "/app/target/epubcheck.jar",
-                "/data/bookmark.epub",
-            ]
-        )
+        release_directory = Path(directory) / "epubcheck"
+        archive = urlopen(_epubcheck_url(), timeout=30).read()
+        if hashlib.sha256(archive).hexdigest() != EPUBCHECK_SHA256:
+            raise RuntimeError("official EPUBCheck archive checksum did not match")
+        with zipfile.ZipFile(BytesIO(archive)) as release:
+            release.extractall(release_directory)
+        jar_path = next(release_directory.glob("**/epubcheck.jar"))
+        container_jar_path = "/data/" + str(jar_path.relative_to(directory))
+        try:
+            _run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--entrypoint",
+                    "java",
+                    "--volume",
+                    f"{directory}:/data:ro",
+                    epubcheck_jre_image,
+                    "-jar",
+                    container_jar_path,
+                    "/data/bookmark.epub",
+                ]
+            )
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"EPUBCheck failed:\nstdout:\n{exc.stdout}\nstderr:\n{exc.stderr}"
+            ) from exc
+
+
+def _epubcheck_url() -> str:
+    return (
+        "https://github.com/w3c/epubcheck/releases/download/"
+        f"v{EPUBCHECK_VERSION}/epubcheck-{EPUBCHECK_VERSION}.zip"
+    )
 
 
 def _run(command: list[str]) -> subprocess.CompletedProcess[str]:

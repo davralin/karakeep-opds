@@ -21,6 +21,25 @@
     automergeType: 'pr',
   },
 
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Official EPUBCheck releases used by the deployed-image conformance test',
+      managerFilePatterns: ['/tests/deployment_check\\.py$/'],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) versioning=(?<versioning>[^\\s]+)\\s+EPUBCHECK_VERSION = "(?<currentValue>[^"]+)"',
+      ],
+    },
+    {
+      customType: 'regex',
+      description: 'Java runtime image used by the deployed-image EPUBCheck validation',
+      managerFilePatterns: ['/tests/deployment_check\\.py$/'],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)\\s+EPUBCHECK_JRE_IMAGE = "[^:@]+:(?<currentValue>[^@]+)@(?<currentDigest>sha256:[a-f0-9]+)"',
+      ],
+    },
+  ],
+
   packageRules: [
     {
       description: 'Auto-merge non-breaking updates',

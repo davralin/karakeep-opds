@@ -1,41 +1,47 @@
-FROM ghcr.io/astral-sh/uv:0.12.13@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 AS uv
+FROM rust:1-slim-bookworm@sha256:86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS builder
 
-FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS builder
-
-COPY --from=uv /uv /uvx /usr/local/bin/
-
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_LINK_MODE=copy
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates musl-tools \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-RUN uv sync --frozen --no-dev --no-editable
+FROM builder AS test
 
-FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+RUN rustup component add clippy rustfmt \
+  && cargo fmt --check \
+  && cargo clippy --locked -- -D warnings \
+  && cargo test --locked
+
+FROM builder AS build
+
+ARG TARGETARCH
+
+RUN case "$TARGETARCH" in \
+      amd64) target=x86_64-unknown-linux-musl ;; \
+      arm64) target=aarch64-unknown-linux-musl ;; \
+      *) echo "unsupported architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+  && rustup target add "$target" \
+  && cargo build --locked --release --target "$target" \
+  && cp "target/$target/release/karakeep-opds" /karakeep-opds
+
+FROM scratch
 
 LABEL org.opencontainers.image.title="karakeep-opds"
 LABEL org.opencontainers.image.description="OPDS bridge for Karakeep bookmarks"
 
-ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONUNBUFFERED=1
-
-WORKDIR /app
-
-RUN python -m pip uninstall -y pip setuptools wheel \
-  && rm -rf /usr/local/lib/python*/ensurepip /root/.cache /tmp/* \
-  && addgroup --system --gid 65532 app \
-  && adduser --system --uid 65532 --ingroup app --home /nonexistent --no-create-home app
-
-COPY --from=builder --chown=app:app /app /app
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /karakeep-opds /karakeep-opds
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).read()"
+  CMD ["/karakeep-opds", "healthcheck"]
 
 USER 65532:65532
 
-CMD ["python", "-m", "karakeep_opds"]
+ENTRYPOINT ["/karakeep-opds"]
