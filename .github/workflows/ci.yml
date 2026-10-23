@@ -7,12 +7,10 @@ on:
     branches: [main]
 
 jobs:
-  image:
+  test:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
@@ -34,6 +32,37 @@ jobs:
           uv run ruff format --check .
           uv run mypy .
           uv run pytest
+
+  deployment:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Build production image
+        run: docker build --tag karakeep-opds:ci -f Containerfile .
+
+      - name: Deploy and exercise production image
+        run: python3 tests/deployment_check.py --image karakeep-opds:ci
+
+  image:
+    needs: deployment
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4

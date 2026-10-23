@@ -31,3 +31,26 @@ def test_settings_requires_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(RuntimeError, match="Missing required"):
         Settings.from_env()
+
+
+@pytest.mark.parametrize("value", ["0", "101", "invalid"])
+def test_settings_rejects_invalid_page_size(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("KARAKEEP_BASE_URL", "https://karakeep.example")
+    monkeypatch.setenv("KARAKEEP_API_TOKEN", "token")
+    monkeypatch.setenv("OPDS_USERNAME", "user")
+    monkeypatch.setenv("OPDS_PASSWORD", "pass")
+    monkeypatch.setenv("OPDS_PAGE_SIZE", value)
+
+    with pytest.raises(RuntimeError, match="OPDS_PAGE_SIZE"):
+        Settings.from_env()
+
+
+def test_settings_rejects_invalid_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KARAKEEP_BASE_URL", "https://karakeep.example")
+    monkeypatch.setenv("KARAKEEP_API_TOKEN", "token")
+    monkeypatch.setenv("OPDS_USERNAME", "user")
+    monkeypatch.setenv("OPDS_PASSWORD", "pass")
+    monkeypatch.setenv("LOG_LEVEL", "verbose")
+
+    with pytest.raises(RuntimeError, match="LOG_LEVEL"):
+        Settings.from_env()
